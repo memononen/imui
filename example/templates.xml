@@ -1,0 +1,118 @@
+<style>
+	$color = rgba(255,255,255,255);
+	
+	@font-face {
+		font-family: "Roboto";
+		font-weight: normal;
+		src: "../example/Roboto-Regular.ttf";
+	}
+	@font-face {
+		font-family: "Roboto";
+		font-weight: bold;
+		src: "../example/Roboto-Bold.ttf";
+	}
+	@font-face {
+		font-family: "Entypo";
+		font-weight: normal;
+		src: "../example/entypo.ttf";
+	}
+
+	template {
+		font-family: "Roboto";
+		font-weight: normal;
+		font-size: 18px;
+	}
+
+	.icon-search {
+		font-family: "Entypo";
+		font-size: 28px;
+		content: "\u1F50D";
+	}
+	.icon-circled-cross {
+		font-family: "Entypo";
+		font-size: 28px;
+		content: "\u2716";
+	}
+	.icon-plus {
+		font-family: "Entypo";
+		font-size: 28px;
+		content: "\u2796";
+	}
+
+	.search-box {
+		padding: 5px;
+	}
+
+	.footer-buttons {
+		padding: 5px;
+	}
+
+	/* default styles */
+	header {
+		/*width: auto;*/	
+		/*height: 30px;*/
+		/*font-size: 26px;*/
+	}
+
+	input {
+		/*height: ;*/
+		font-size: 26px;
+	}
+
+</style>
+
+<template id="material-window">
+	<win width="300px" height="500px">
+		<col width="100%" height="100%" align="justify">
+			<header width="100%" text="Materials"/>
+			<row class="search-box">
+				<input id="search" grow="1">
+					<icon class="icon-search" />
+					<field grow="1"/>
+					<icon class="icon-circled-cross" />
+				</input>
+			</row>
+			<col id="materials" grow="1" />
+			<row>
+				<spacer grow="1"/>
+				<button id="add-item"><icon class="icon-plus" /><label text="Add" /></button>
+				<button id="remove" text="Remove" />
+			</row>
+		</col>
+	</win>
+</template>
+
+<template id="material-window2">
+	<win width="300px" height="500px" align="justify">
+		<col align="justify">
+			<header>Materials</header>
+			<row height="auto" class="search-box icon-plus">
+				<input id="search" grow="1">
+					<icon class="icon-search" />
+					<field grow="1" />
+					<icon class="icon-circled-cross" />
+				</input>
+			</row>
+			<col id="materials" grow="1" height="10px" align="justify" />
+			<row height="auto" class="footer-buttons">
+				<spacer grow="1" />
+				<button id="add-item"><icon class="icon-plus"/>Add</button>
+				<button id="remove">Remove</button>
+			</row>
+		</col>
+	</win>
+</template>
+
+<template id="material-item">
+	<item padding="4px" align="center">
+		<img id="thumbnail" width="25px" height="25px" />
+		<label id="name" grow="1" />
+	</item>
+</template>
+
+<template id="material-noitems">
+	<col padding="4px" pack="center" align="center">
+		<icon src="sad-face" />
+		<label>Sorry, no items found.</label>
+	</col>
+</template>
