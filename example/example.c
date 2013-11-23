@@ -21,7 +21,6 @@
 #include <iconv.h>
 #include <math.h>
 #include <GLFW/glfw3.h>
-#define IMUI_IMPLEMENTATION
 #include "imui.h"
 #include "nanovg.h"
 #define GLNANOVG_IMPLEMENTATION
@@ -53,28 +52,144 @@ static char* cpToUTF8(int cp, char* str)
 }
 */
 
-void drawLayout(struct NVGcontext* vg, struct IMUIbox* box)
+static float clampRad(float r0, float r1, float w, float is)
+{
+	r0 += is;
+	r1 += is;
+	if (r0 < 0) r0 = 0;
+	if (r1 < 0) r1 = 1;
+	if (r0+r1 >= w) {
+		float s = w/(r0+r1);
+		return r0*s;
+	}
+	return r0;
+}
+
+static void drawBox(struct NVGcontext* vg, float x, float y, float w, float h, float* cr, float is)
+{
+	float d;
+	x -= is;
+	y -= is;
+	w += is*2;
+	h += is*2;
+	d = w < h ? w : h;
+	nvgMoveTo(vg, x, y+h*0.5f);
+	nvgArcTo(vg, x,y, x+w,y, clampRad(cr[0],cr[1],d,is));
+	nvgArcTo(vg, x+w,y, x+w,y+h, clampRad(cr[1],cr[2],d,is));
+	nvgArcTo(vg, x+w,y+h, x,y+h, clampRad(cr[2],cr[3],d,is));
+	nvgArcTo(vg, x,y+h, x,y, clampRad(cr[3],cr[0],d,is));
+	nvgClosePath(vg);
+
+/*	float r = 10;
+	nvgArc(vg, x+r, y+r, r, NVG_PI, NVG_PI*1.5f, NVG_CW);
+	nvgArc(vg, x+w-r, y+r, r, NVG_PI*1.5f, NVG_PI*2.0f, NVG_CW);
+	nvgArc(vg, x+w-r, y+h-r, r, 0, NVG_PI*0.5f, NVG_CW);
+	nvgArc(vg, x+r, y+h-r, r, NVG_PI*0.5f, NVG_PI, NVG_CW);
+*/
+
+/*	nvgMoveTo(vg, x, y+h*0.5f);
+
+	nvgArcTo(vg, x,y, x+w,y, 10);
+	nvgArcTo(vg, x+w,y, x+w,y+h, 10);
+	nvgArcTo(vg, x+w,y+h, x,y+h, 10);
+	nvgArcTo(vg, x,y+h, x,y, 10);
+
+	nvgClosePath(vg);*/
+
+}
+
+void drawLayout(struct NVGcontext* vg, float ox, float oy, struct IMUIbox* box)
 {
 	struct IMUIbox* it;
-	float ox = 500.0f, oy = 20.0f;
+	const char* text = box->text;
+	if (box->computedStyle.content != NULL)
+		text = box->computedStyle.content;
 
-	nvgFillColor(vg, nvgRGBA(0,0,0,128));
+	if (box->computedStyle.boxShadow.color != 0) {
+		struct NVGpaint paint;
+		float x,y,w,h,r,r2,blur,spread,sx,sy;
+		sx = box->computedStyle.boxShadow.offset[0];
+		sy = box->computedStyle.boxShadow.offset[1];
+		blur = box->computedStyle.boxShadow.blur;
+		spread = box->computedStyle.boxShadow.spread;
+		x = ox + box->computedPosition.x;
+		y = oy + box->computedPosition.y;
+		w = box->computedSize.x;
+		h = box->computedSize.y;
+		r = blur*0.5f + spread + 1;
+		if (sx < 0) x += sx;
+		if (sy < 0) y += sy;
+		w += fabsf(sx);
+		h += fabsf(sy);
+		x -= r;
+		y -= r;
+		w += r*2;
+		h += r*2;
+
+		r2 = (box->computedStyle.radius[0] + box->computedStyle.radius[1] + box->computedStyle.radius[2] + box->computedStyle.radius[3]) / 4.0f;
+		paint = nvgBoxGradient(vg, sx+ox+box->computedPosition.x-spread, sy+oy+box->computedPosition.y-spread,
+								box->computedSize.x+spread*2, box->computedSize.y+spread*2, r2+blur*0.5f+spread,
+								blur, box->computedStyle.boxShadow.color, nvgTransRGBA(box->computedStyle.boxShadow.color, 0));
+
+		nvgBeginPath(vg);
+		nvgRect(vg, x,y,w,h);
+		drawBox(vg, ox+box->computedPosition.x, oy+box->computedPosition.y, box->computedSize.x, box->computedSize.y, box->computedStyle.radius, 0.0f);
+		nvgPathWinding(vg, NVG_CW);
+		nvgFillPaint(vg, paint);
+		nvgFill(vg);
+	}
+
+	if (box->computedStyle.backgroundColor != 0) {
+		nvgBeginPath(vg);
+		drawBox(vg, ox+box->computedPosition.x, oy+box->computedPosition.y, box->computedSize.x, box->computedSize.y, box->computedStyle.radius, 0.0f);
+		nvgFillColor(vg, box->computedStyle.backgroundColor);
+		nvgFill(vg);
+	}
+
+	if (box->computedStyle.outlineColor != 0) {
+		nvgBeginPath(vg);
+		drawBox(vg, ox+box->computedPosition.x, oy+box->computedPosition.y, box->computedSize.x, box->computedSize.y, box->computedStyle.radius, box->computedStyle.outlineWidth*0.5f);
+		nvgStrokeColor(vg, box->computedStyle.outlineColor);
+		nvgStrokeWidth(vg, box->computedStyle.outlineWidth);
+		nvgStroke(vg);
+	}
+
+	if (text != NULL) {
+		if (box->computedStyle.fontId != -1) {
+			nvgFontFaceId(vg, box->computedStyle.fontId);
+			nvgFontSize(vg, box->computedStyle.fontSize);
+			nvgLetterSpacing(vg, 0);
+			nvgFontBlur(vg, 0);
+			nvgTextAlign(vg, NVG_ALIGN_CENTER|NVG_ALIGN_MIDDLE);
+			nvgFillColor(vg, box->computedStyle.contentColor);
+			nvgText(vg, ox+box->computedPosition.x+box->computedSize.x*0.5, oy+box->computedPosition.y+box->computedSize.y*0.5, text, NULL);
+		}
+	}
+
+
+/*	nvgFillColor(vg, nvgRGBA(0,0,0,128));
 	nvgText(vg, ox+2+box->computedPosition.x, oy+2+box->computedPosition.y+12, box->type, NULL);
 
 	nvgStrokeColor(vg, nvgRGBA(0,0,0,32));
 	nvgBeginPath(vg);
 	nvgRect(vg, ox+box->computedPosition.x, oy+box->computedPosition.y, box->computedSize.x, box->computedSize.y);
 	nvgStroke(vg);
+*/
 
 	for (it = box->items; it != NULL; it = it->next)
-		drawLayout(vg, it);
+		drawLayout(vg, ox,oy, it);
 }
 
 static int measureItem(void* uptr, struct IMUIbox* box, float* itemw, float* itemh)
 {
 	struct NVGcontext* vg = (struct NVGcontext*)uptr;
 	float textw, lineh;
-	const char* text = box->computedStyle.content != NULL ? box->computedStyle.content : box->text;
+	const char* text = box->text;
+
+	if (box->computedStyle.content != NULL)
+		text = box->computedStyle.content;
+	if (strcmp(box->type, "field") == 0)
+		text = "XXXXX";
 
 	if (text != NULL) {
 		if (box->computedStyle.fontId != -1) {
@@ -227,11 +342,11 @@ int main()
 		float w = 200.0f + u*100.0f;
 		float h = 500.0f + u*100.0f;
 
-		imuiComputeLayout(matWin, w, h, measureItem, vg);
+		imuiComputeLayout(matWin, w,h, measureItem, vg);
 
 		nvgFontSize(vg, 15.0f);
 		nvgFontFace(vg, "sans");
-		drawLayout(vg, matWin->root);
+		drawLayout(vg, 500,20, matWin->root);
 
 		glEnable(GL_DEPTH_TEST);
 

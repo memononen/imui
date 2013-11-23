@@ -8,7 +8,7 @@ solution "imui"
   
 	project "example"
 		kind "ConsoleApp"
-		language "C++"
+		language "C"
 		files { "example/example.c", "src/*", "lib/*" }
 		includedirs { "src", "lib" }
 		targetdir("build")
