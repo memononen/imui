@@ -42,10 +42,16 @@ struct IMUIpoint {
 };
 
 struct IMUIshadow {
-	float offset[2];
+	struct IMUIpoint offset;
 	float blur;
 	float spread;
 	unsigned int color;
+};
+
+struct IMUIgradient {
+	float angle;
+	unsigned int startColor;
+	unsigned int endColor;
 };
 
 struct IMUIcomputedStyle
@@ -55,19 +61,25 @@ struct IMUIcomputedStyle
 	int fontStyle;
 	int fontWeight;
 	float fontSize;
+	float letterSpacing;
 
 	unsigned int contentColor;
-	unsigned int outlineColor;
-	unsigned int backgroundColor;
+	struct IMUIgradient background;
 
 	float outlineWidth;
+	float outlineOffset;
+	unsigned int outlineColor;
+
+	unsigned int borderColor[4];
+	float borderWidth;
 
 	float width;
 	float height;
 
 	float padding[4];
-	float margin[4];
+//	float margin[4];
 	float radius[4];
+	float spacing;
 
 	char* content;
 
@@ -126,21 +138,31 @@ enum IMUIproperties {
 	IMUI_PROP_FONT_STYLE,
 	IMUI_PROP_FONT_WEIGHT,
 	IMUI_PROP_FONT_SIZE,
+	IMUI_PROP_LETTER_SPACING,
 	IMUI_PROP_CONTENT_COLOR,
-	IMUI_PROP_BACKGROUND_COLOR,
+	IMUI_PROP_BACKGROUND_ANGLE,
+	IMUI_PROP_BACKGROUND_STARTCOLOR,
+	IMUI_PROP_BACKGROUND_ENDCOLOR,
 	IMUI_PROP_OUTLINE_COLOR,
 	IMUI_PROP_OUTLINE_WIDTH,
+	IMUI_PROP_OUTLINE_OFFSET,
 	IMUI_PROP_WIDTH,
 	IMUI_PROP_HEIGHT,
 	IMUI_PROP_CONTENT,
+	IMUI_PROP_BORDER_TOP_COLOR,
+	IMUI_PROP_BORDER_RIGHT_COLOR,
+	IMUI_PROP_BORDER_BOTTOM_COLOR,
+	IMUI_PROP_BORDER_LEFT_COLOR,
+	IMUI_PROP_BORDER_WIDTH,
 	IMUI_PROP_PADDING_TOP,
 	IMUI_PROP_PADDING_RIGHT,
 	IMUI_PROP_PADDING_BOTTOM,
 	IMUI_PROP_PADDING_LEFT,
-	IMUI_PROP_MARGIN_TOP,
+/*	IMUI_PROP_MARGIN_TOP,
 	IMUI_PROP_MARGIN_RIGHT,
 	IMUI_PROP_MARGIN_BOTTOM,
-	IMUI_PROP_MARGIN_LEFT,
+	IMUI_PROP_MARGIN_LEFT,*/
+	IMUI_PROP_SPACING,
 	IMUI_PROP_RADIUS_TOPLEFT,
 	IMUI_PROP_RADIUS_TOPRIGHT,
 	IMUI_PROP_RADIUS_BOTRIGHT,

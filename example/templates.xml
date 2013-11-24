@@ -46,6 +46,7 @@
 
 	.footer-buttons {
 		padding: 5px;
+		spacing: 5px;
 	}
 
 
@@ -58,8 +59,10 @@
 
 	input {
 		/*height: ;*/
-		outline: 1px rgba(255,255,255,0.2);
+		border: 1px rgba(255,255,255,0.2);
+/*		outline: 2px rgba(0,192,255,0.2);*/
 		border-radius: 13px;
+		box-shadow: 0px 0px 4px 4px rgba(0,192,255,0.3);
 		height: 26px;
 	}
 
@@ -72,7 +75,7 @@
 	}
 
 	button {
-		outline: 1px rgba(255,255,255,0.2);
+		border: 1px rgba(255,255,255,0.2);
 		border-radius: 2px;
 		height: 26px;
 		padding: 2px 10px;
@@ -89,6 +92,16 @@
 
 	#search {
 		height: 22px;
+	}
+
+	header {
+		background: 0deg rgba(0,0,0,0.2) rgba(255,255,255,0.1);
+		height: 28px;
+		border-top-left-radius: 5px;
+		border-top-right-radius: 5px;
+		border-width: 1px;
+		border-bottom-color: rgba(0,0,0,0.5);
+		text-shadow: 0px 1px 2px rgba(0,0,0,0.6);
 	}
 
 </style>

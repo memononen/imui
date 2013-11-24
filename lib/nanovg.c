@@ -1346,57 +1346,64 @@ void nvgArc(struct NVGcontext* ctx, float cx, float cy, float r, float a0, float
 	int i, ndivs, nvals;
 	int move = ctx->ncommands > 0 ? NVG_LINETO : NVG_MOVETO; 
 
-	// Clamp angles
-	da = a1 - a0;
-	if (dir == NVG_CW) {
-		if (nvg__absf(da) >= NVG_PI*2) {
-			da = NVG_PI*2;
+	if (r > 0.001f) {
+		// Clamp angles
+		da = a1 - a0;
+		if (dir == NVG_CW) {
+			if (nvg__absf(da) >= NVG_PI*2) {
+				da = NVG_PI*2;
+			} else {
+				while (da < 0.0f) da += NVG_PI*2;
+			}
 		} else {
-			while (da < 0.0f) da += NVG_PI*2;
+			if (nvg__absf(da) >= NVG_PI*2) {
+				da = -NVG_PI*2;
+			} else {
+				while (da > 0.0f) da -= NVG_PI*2;
+			}
+		}
+
+		// Split arc into max 90 degree segments.
+		ndivs = nvg__maxi(1, nvg__mini((int)(nvg__absf(da) / (NVG_PI*0.5f) + 0.5f), 5));
+		hda = (da / (float)ndivs) / 2.0f;
+		kappa = nvg__absf(4.0f / 3.0f * (1.0f - nvg__cosf(hda)) / nvg__sinf(hda));
+
+		if (dir == NVG_CCW)
+			kappa = -kappa;
+
+		nvals = 0;
+		for (i = 0; i <= ndivs; i++) {
+			a = a0 + da * (i/(float)ndivs);
+			dx = nvg__cosf(a);
+			dy = nvg__sinf(a);
+			x = cx + dx*r;
+			y = cy + dy*r;
+			tanx = -dy*r*kappa;
+			tany = dx*r*kappa;
+
+			if (i == 0) {
+				vals[nvals++] = move;
+				vals[nvals++] = x;
+				vals[nvals++] = y;
+			} else {
+				vals[nvals++] = NVG_BEZIERTO;
+				vals[nvals++] = px+ptanx;
+				vals[nvals++] = py+ptany;
+				vals[nvals++] = x-tanx;
+				vals[nvals++] = y-tany;
+				vals[nvals++] = x;
+				vals[nvals++] = y;
+			}
+			px = x;
+			py = y;
+			ptanx = tanx;
+			ptany = tany;
 		}
 	} else {
-		if (nvg__absf(da) >= NVG_PI*2) {
-			da = -NVG_PI*2;
-		} else {
-			while (da > 0.0f) da -= NVG_PI*2;
-		}
-	}
-
-	// Split arc into max 90 degree segments.
-	ndivs = nvg__maxi(1, nvg__mini((int)(nvg__absf(da) / (NVG_PI*0.5f) + 0.5f), 5));
-	hda = (da / (float)ndivs) / 2.0f;
-	kappa = nvg__absf(4.0f / 3.0f * (1.0f - nvg__cosf(hda)) / nvg__sinf(hda));
-
-	if (dir == NVG_CCW)
-		kappa = -kappa;
-
-	nvals = 0;
-	for (i = 0; i <= ndivs; i++) {
-		a = a0 + da * (i/(float)ndivs);
-		dx = nvg__cosf(a);
-		dy = nvg__sinf(a);
-		x = cx + dx*r;
-		y = cy + dy*r;
-		tanx = -dy*r*kappa;
-		tany = dx*r*kappa;
-
-		if (i == 0) {
-			vals[nvals++] = move;
-			vals[nvals++] = x;
-			vals[nvals++] = y;
-		} else {
-			vals[nvals++] = NVG_BEZIERTO;
-			vals[nvals++] = px+ptanx;
-			vals[nvals++] = py+ptany;
-			vals[nvals++] = x-tanx;
-			vals[nvals++] = y-tany;
-			vals[nvals++] = x;
-			vals[nvals++] = y;
-		}
-		px = x;
-		py = y;
-		ptanx = tanx;
-		ptany = tany;
+		nvals = 0;
+		vals[nvals++] = move;
+		vals[nvals++] = cx;
+		vals[nvals++] = cy;
 	}
 
 	nvg__appendCommands(ctx, vals, nvals);

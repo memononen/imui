@@ -52,32 +52,24 @@ static char* cpToUTF8(int cp, char* str)
 }
 */
 
-static float clampRad(float r0, float r1, float w, float is)
-{
-	r0 += is;
-	r1 += is;
-	if (r0 < 0) r0 = 0;
-	if (r1 < 0) r1 = 1;
-	if (r0+r1 >= w) {
-		float s = w/(r0+r1);
-		return r0*s;
-	}
-	return r0;
-}
+static float minf(float a, float b) { return a < b ? a : b; }
+static float maxf(float a, float b) { return a > b ? a : b; }
+static float clampf(float a, float mn, float mx) { return a < mn ? mn : (a > mx ? mx : a); }
+static float absf(float a) { return a < 0.0f ? -a : a; }
 
 static void drawBox(struct NVGcontext* vg, float x, float y, float w, float h, float* cr, float is)
 {
 	float d;
 	x -= is;
 	y -= is;
-	w += is*2;
-	h += is*2;
-	d = w < h ? w : h;
+	w = maxf(0, w + is*2);
+	h = maxf(0, h + is*2);
+	d = minf(w, h);
 	nvgMoveTo(vg, x, y+h*0.5f);
-	nvgArcTo(vg, x,y, x+w,y, clampRad(cr[0],cr[1],d,is));
-	nvgArcTo(vg, x+w,y, x+w,y+h, clampRad(cr[1],cr[2],d,is));
-	nvgArcTo(vg, x+w,y+h, x,y+h, clampRad(cr[2],cr[3],d,is));
-	nvgArcTo(vg, x,y+h, x,y, clampRad(cr[3],cr[0],d,is));
+	nvgArcTo(vg, x,y, x+w,y, minf(cr[0]+is, d/2));
+	nvgArcTo(vg, x+w,y, x+w,y+h, minf(cr[1]+is, d/2));
+	nvgArcTo(vg, x+w,y+h, x,y+h, minf(cr[2]+is, d/2));
+	nvgArcTo(vg, x,y+h, x,y, minf(cr[3]+is, d/2));
 	nvgClosePath(vg);
 
 /*	float r = 10;
@@ -98,71 +90,190 @@ static void drawBox(struct NVGcontext* vg, float x, float y, float w, float h, f
 
 }
 
+static void drawBorderBox(struct NVGcontext* vg, float x, float y, float w, float h, float* cr, float sw, unsigned int* bcol)
+{
+	if ((bcol[0] | bcol[1] | bcol[2] | bcol[3]) == 0) {
+		// All transparent, do not draw
+		return;
+	} else if (bcol[0] == bcol[1] && bcol[0] == bcol[2] && bcol[0] == bcol[3]) {
+		// All same color, draw as closed stroke.
+		nvgBeginPath(vg);
+		drawBox(vg, x,y, w,h, cr, sw*0.5f);
+		nvgStrokeColor(vg, bcol[0]);
+		nvgStrokeWidth(vg, sw);
+		nvgStroke(vg);
+	} else {
+		// Mixed appearance
+		int first, i;
+		float corners[4*2];
+		float rad[4], is = -sw*0.5f, d;
+		x -= is;
+		y -= is;
+		w = maxf(0, w + is*2);
+		h = maxf(0, h + is*2);
+		d = minf(w, h);
+		rad[0] = clampf(cr[0]+is, 0, d/2);
+		corners[0] = x+rad[0];
+		corners[1] = y+rad[0];
+		rad[1] = clampf(cr[1]+is, 0, d/2);
+		corners[2] = x+w-rad[1];
+		corners[3] = y+rad[1];
+		rad[2] = clampf(cr[2]+is, 0, d/2);
+		corners[4] = x+w-rad[2];
+		corners[5] = y+h-rad[2];
+		rad[3] = clampf(cr[3]+is, 0, d/2);
+		corners[6] = x+rad[3];
+		corners[7] = y+h-rad[3];
+
+		// Find first transition
+		first = 0;
+		for (i = 0; i < 4; i++) {
+			int idx = i % 4;
+			int pidx = (idx+3) % 4;
+			if (bcol[pidx] != bcol[i]) {
+				first = i;
+				break;
+			}
+		}
+
+		nvgBeginPath(vg);
+		for (i = 0; i <= 4; i++) {
+			int idx = first % 4;
+			int pidx = (idx+3) % 4;
+			float a0 = NVG_PI + i*NVG_PI*0.5f;
+			float a1 = a0 + NVG_PI*0.5f;
+			if (bcol[pidx] == bcol[idx]) {
+				if (bcol[idx] != 0) {
+					nvgArc(vg, corners[idx*2], corners[idx*2+1], rad[idx], a0, a1, NVG_CW);
+				}
+			} else {
+				if (bcol[pidx] != 0) {
+					nvgArc(vg, corners[idx*2], corners[idx*2+1], rad[idx], a0, (a0+a1)*0.5f, NVG_CW);
+					nvgStrokeColor(vg, bcol[pidx]);
+					nvgStrokeWidth(vg, sw);
+					nvgStroke(vg);
+				}
+				if (bcol[idx] != 0) {
+					nvgBeginPath(vg);
+					nvgArc(vg, corners[idx*2], corners[idx*2+1], rad[idx], (a0+a1)*0.5f, a1, NVG_CW);
+				}
+			}
+			first++;
+		}
+		// Clear any path generated.
+		nvgBeginPath(vg);
+	}
+}
+
+static void calcLinearGradientPoints(float* pts, float x, float y, float w, float h, float angle)
+{
+	int i;
+	float corners[4*2] = {x,y, x+w,y, x+w,y+h, x,y+h };
+	float cx = x+w*0.5f, cy = y+h*0.5f;
+	float dx = -sinf(angle), dy = cosf(angle);
+	float dmax = 0, d;
+	for (i = 0; i < 4; i++) {
+		d = dx*(corners[i*2] - cx) + dy*(corners[i*2+1] - cy);
+		if (d > dmax) dmax = d;
+	}
+	pts[0] = cx + dx*dmax;
+	pts[1] = cy + dy*dmax;
+	pts[2] = cx - dx*dmax;
+	pts[3] = cy - dy*dmax;
+}
+
 void drawLayout(struct NVGcontext* vg, float ox, float oy, struct IMUIbox* box)
 {
 	struct IMUIbox* it;
+	struct IMUIcomputedStyle* style = &box->computedStyle;
+	float bx = ox + box->computedPosition.x, by = oy + box->computedPosition.y; 
+	float bw = box->computedSize.x, bh = box->computedSize.y;
 	const char* text = box->text;
-	if (box->computedStyle.content != NULL)
-		text = box->computedStyle.content;
+	if (style->content != NULL)
+		text = style->content;
 
-	if (box->computedStyle.boxShadow.color != 0) {
+	if (style->boxShadow.color != 0) {
 		struct NVGpaint paint;
 		float x,y,w,h,r,r2,blur,spread,sx,sy;
-		sx = box->computedStyle.boxShadow.offset[0];
-		sy = box->computedStyle.boxShadow.offset[1];
-		blur = box->computedStyle.boxShadow.blur;
-		spread = box->computedStyle.boxShadow.spread;
-		x = ox + box->computedPosition.x;
-		y = oy + box->computedPosition.y;
-		w = box->computedSize.x;
-		h = box->computedSize.y;
+		sx = style->boxShadow.offset.x;
+		sy = style->boxShadow.offset.y;
+		blur = style->boxShadow.blur;
+		spread = style->boxShadow.spread;
+		x = bx;
+		y = by;
+		w = bw;
+		h = bh;
 		r = blur*0.5f + spread + 1;
 		if (sx < 0) x += sx;
 		if (sy < 0) y += sy;
-		w += fabsf(sx);
-		h += fabsf(sy);
+		w += absf(sx);
+		h += absf(sy);
 		x -= r;
 		y -= r;
 		w += r*2;
 		h += r*2;
 
-		r2 = (box->computedStyle.radius[0] + box->computedStyle.radius[1] + box->computedStyle.radius[2] + box->computedStyle.radius[3]) / 4.0f;
-		paint = nvgBoxGradient(vg, sx+ox+box->computedPosition.x-spread, sy+oy+box->computedPosition.y-spread,
-								box->computedSize.x+spread*2, box->computedSize.y+spread*2, r2+blur*0.5f+spread,
-								blur, box->computedStyle.boxShadow.color, nvgTransRGBA(box->computedStyle.boxShadow.color, 0));
+		r2 = (style->radius[0] + style->radius[1] + style->radius[2] + style->radius[3]) / 4.0f;
+		paint = nvgBoxGradient(vg, sx+bx-spread, sy+by-spread,
+								bw+spread*2, bh+spread*2, r2+spread,
+								blur, style->boxShadow.color, nvgTransRGBA(style->boxShadow.color, 0));
 
 		nvgBeginPath(vg);
 		nvgRect(vg, x,y,w,h);
-		drawBox(vg, ox+box->computedPosition.x, oy+box->computedPosition.y, box->computedSize.x, box->computedSize.y, box->computedStyle.radius, 0.0f);
+		drawBox(vg, bx, by, bw, bh, style->radius, 0.0f);
 		nvgPathWinding(vg, NVG_CW);
 		nvgFillPaint(vg, paint);
 		nvgFill(vg);
 	}
 
-	if (box->computedStyle.backgroundColor != 0) {
+	if (style->background.startColor != 0) {
+		float pts[4];
 		nvgBeginPath(vg);
-		drawBox(vg, ox+box->computedPosition.x, oy+box->computedPosition.y, box->computedSize.x, box->computedSize.y, box->computedStyle.radius, 0.0f);
-		nvgFillColor(vg, box->computedStyle.backgroundColor);
+		drawBox(vg, bx, by, bw, bh, style->radius, 0.0f);
+		if (style->background.startColor == style->background.endColor) {
+			nvgFillColor(vg, style->background.startColor);
+		} else {
+			struct NVGpaint grad;
+			calcLinearGradientPoints(pts, bx, by, bw, bh, style->background.angle);
+			grad = nvgLinearGradient(vg, pts[0],pts[1],pts[2],pts[3], style->background.startColor, style->background.endColor);
+			nvgFillPaint(vg, grad);
+		}
 		nvgFill(vg);
+
+/*		nvgBeginPath(vg);
+		nvgMoveTo(vg, pts[0],pts[1]);
+		nvgLineTo(vg, pts[2],pts[3]);
+		nvgCircle(vg, pts[2],pts[3],3.0f);
+		nvgStrokeWidth(vg, 1.0f);
+		nvgStrokeColor(vg, nvgRGBA(255,255,255,255));
+		nvgStroke(vg);*/
 	}
 
-	if (box->computedStyle.outlineColor != 0) {
+	if (style->outlineColor != 0) {
+		float offset = style->outlineWidth*0.5f + style->outlineOffset;
 		nvgBeginPath(vg);
-		drawBox(vg, ox+box->computedPosition.x, oy+box->computedPosition.y, box->computedSize.x, box->computedSize.y, box->computedStyle.radius, box->computedStyle.outlineWidth*0.5f);
-		nvgStrokeColor(vg, box->computedStyle.outlineColor);
-		nvgStrokeWidth(vg, box->computedStyle.outlineWidth);
+		drawBox(vg, bx, by, bw, bh, style->radius, offset);
+		nvgStrokeColor(vg, style->outlineColor);
+		nvgStrokeWidth(vg, style->outlineWidth);
 		nvgStroke(vg);
 	}
 
+	drawBorderBox(vg, bx, by, bw, bh, style->radius, style->borderWidth, style->borderColor);
+
 	if (text != NULL) {
-		if (box->computedStyle.fontId != -1) {
-			nvgFontFaceId(vg, box->computedStyle.fontId);
-			nvgFontSize(vg, box->computedStyle.fontSize);
-			nvgLetterSpacing(vg, 0);
-			nvgFontBlur(vg, 0);
+		if (style->fontId != -1) {
+			nvgFontFaceId(vg, style->fontId);
+			nvgFontSize(vg, style->fontSize);
+			nvgLetterSpacing(vg, style->letterSpacing);
 			nvgTextAlign(vg, NVG_ALIGN_CENTER|NVG_ALIGN_MIDDLE);
-			nvgFillColor(vg, box->computedStyle.contentColor);
-			nvgText(vg, ox+box->computedPosition.x+box->computedSize.x*0.5, oy+box->computedPosition.y+box->computedSize.y*0.5, text, NULL);
+			if (style->textShadow.color != 0) {
+				nvgFontBlur(vg, style->textShadow.blur);
+				nvgFillColor(vg, style->textShadow.color);
+				nvgText(vg, bx+bw*0.5+style->textShadow.offset.x, by+bh*0.5+style->textShadow.offset.y, text, NULL);
+			}
+			nvgFontBlur(vg, 0);
+			nvgFillColor(vg, style->contentColor);
+			nvgText(vg, bx+bw*0.5, by+bh*0.5, text, NULL);
 		}
 	}
 

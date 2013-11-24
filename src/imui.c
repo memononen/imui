@@ -25,6 +25,7 @@
 #include "imui.h"
 
 #define IMUI_MAX_LAYOUT_NESTING 256
+#define IMUI_PI 3.14159265358979323846264338327f
 
 struct IMUIvar {
 	char* key;
@@ -871,6 +872,24 @@ static float imui__parseSizePx(struct IMUIparser* p, const char* val)
 	return 0.0f;
 }
 
+static float imui__parseAngle(struct IMUIparser* p, const char* val)
+{
+	char units[32];
+	float angle = 0.0f;
+	sscanf(val, "%f%s", &angle, units);
+	if (strcmp(units, "deg") == 0) {
+		return angle / 180.0f * IMUI_PI;
+	} else if (strcmp(units, "turn") == 0) {
+		return angle * IMUI_PI*2.0f;
+	} else if (strcmp(units, "rad") == 0) {
+		return angle;
+	} else if (strcmp(units, "grad") == 0) {
+		return angle / 200.0f * IMUI_PI;
+	}
+	printf("%s:%d: warning: Invalid angle '%s' expect units in degrees.\n", p->name, imui__getLine(p, val), val);
+	return 0.0f;
+}
+
 static void imui__cpToUTF8(unsigned int cp, char* str)
 {
 	int n = 0;
@@ -974,6 +993,26 @@ static unsigned int imui__parseColor(struct IMUIparser* p, const char* val)
 	return 0;
 }
 
+static void imui__parseBorderColor(struct IMUIparser* p, char** vals, int nvals, unsigned int* color)
+{
+	if (nvals == 1) {
+		color[0] = color[1] = color[2] = color[3] = imui__parseColor(p, vals[0]);
+	} else if (nvals == 2) {
+		color[0] = color[2] = imui__parseColor(p, vals[0]);
+		color[1] = color[3] = imui__parseColor(p, vals[1]);
+	} else if (nvals == 3) {
+		color[0] = imui__parseColor(p, vals[0]);
+		color[1] = color[3] = imui__parseColor(p, vals[1]);
+		color[2] = imui__parseColor(p, vals[2]);
+	} else if (nvals == 4) {
+		color[0] = imui__parseColor(p, vals[0]);
+		color[1] = imui__parseColor(p, vals[1]);
+		color[2] = imui__parseColor(p, vals[2]);
+		color[3] = imui__parseColor(p, vals[3]);
+	}
+}
+
+
 static void imui__addProp(struct IMUIstyle* style, struct IMUIprop* prop)
 {
 	struct IMUIprop* p = style->props;
@@ -1046,11 +1085,21 @@ static void imui__resetComputedStyle(struct IMUIcomputedStyle* style)
 	style->fontStyle = IMUI_REGULAR;
 	style->fontWeight = 400;
 	style->fontSize = 16.0f;
+	style->letterSpacing = 0.0f;
 
 	style->contentColor = imui__RGBA(0,0,0,255);
-	style->backgroundColor = imui__RGBA(0,0,0,0);
-	style->outlineColor = imui__RGBA(0,0,0,0);
+	style->background.angle = 0.0f;
+	style->background.startColor = 0;
+	style->background.endColor = 0;
+	style->outlineColor = 0;
 	style->outlineWidth = 0.0f;
+	style->outlineOffset = 0.0f;
+
+	style->borderColor[0] = 0;
+	style->borderColor[1] = 0;
+	style->borderColor[2] = 0;
+	style->borderColor[3] = 0;
+	style->borderWidth = 0.0f;
 
 	style->width = IMUI_NONE;
 	style->height = IMUI_NONE;
@@ -1060,10 +1109,10 @@ static void imui__resetComputedStyle(struct IMUIcomputedStyle* style)
 	style->padding[2] = 0;
 	style->padding[3] = 0;
 
-	style->margin[0] = 0;
+/*	style->margin[0] = 0;
 	style->margin[1] = 0;
 	style->margin[2] = 0;
-	style->margin[3] = 0;
+	style->margin[3] = 0;*/
 	
 	style->radius[0] = 0;
 	style->radius[1] = 0;
@@ -1072,17 +1121,17 @@ static void imui__resetComputedStyle(struct IMUIcomputedStyle* style)
 
 	style->content = NULL;
 
-	style->textShadow.offset[0] = 0;
-	style->textShadow.offset[1] = 0;
+	style->textShadow.offset.x = 0;
+	style->textShadow.offset.y = 0;
 	style->textShadow.blur = 0;
 	style->textShadow.spread = 0;
-	style->textShadow.color = imui__RGBA(0,0,0,0);
+	style->textShadow.color = 0;
 
-	style->boxShadow.offset[0] = 0;
-	style->boxShadow.offset[1] = 0;
+	style->boxShadow.offset.x = 0;
+	style->boxShadow.offset.y = 0;
 	style->boxShadow.blur = 0;
 	style->boxShadow.spread = 0;
-	style->boxShadow.color = imui__RGBA(0,0,0,0);
+	style->boxShadow.color = 0;
 }
 
 static void imui__inheritComputedStyle(struct IMUIcomputedStyle* style, struct IMUIcomputedStyle* parent)
@@ -1092,6 +1141,7 @@ static void imui__inheritComputedStyle(struct IMUIcomputedStyle* style, struct I
 	style->fontStyle = parent->fontStyle;
 	style->fontWeight = parent->fontWeight;
 	style->fontSize = parent->fontSize;
+	style->letterSpacing = parent->letterSpacing;
 	style->contentColor = parent->contentColor;
 }
 
@@ -1109,31 +1159,41 @@ static void imui__applyProperties(struct IMUIcomputedStyle* style, struct IMUIpr
 			case IMUI_PROP_FONT_STYLE:		style->fontStyle = prop->ival; break;
 			case IMUI_PROP_FONT_WEIGHT:		style->fontWeight = prop->ival; break;
 			case IMUI_PROP_FONT_SIZE:		style->fontSize = prop->fval; break;
+			case IMUI_PROP_LETTER_SPACING:	style->letterSpacing = prop->fval; break;
 			case IMUI_PROP_CONTENT_COLOR:	style->contentColor = prop->uval; break;
-			case IMUI_PROP_BACKGROUND_COLOR:style->backgroundColor = prop->uval; break;
+			case IMUI_PROP_BACKGROUND_ANGLE:		style->background.angle = prop->fval; break;
+			case IMUI_PROP_BACKGROUND_STARTCOLOR:	style->background.startColor = prop->uval; break;
+			case IMUI_PROP_BACKGROUND_ENDCOLOR:		style->background.endColor = prop->uval; break;
 			case IMUI_PROP_OUTLINE_COLOR:	style->outlineColor = prop->uval; break;
 			case IMUI_PROP_OUTLINE_WIDTH:	style->outlineWidth = prop->fval; break;
+			case IMUI_PROP_OUTLINE_OFFSET:	style->outlineOffset = prop->fval; break;
 			case IMUI_PROP_WIDTH:			style->width = prop->fval; break;
 			case IMUI_PROP_HEIGHT:			style->height = prop->fval; break;
 			case IMUI_PROP_CONTENT:			style->content = prop->str; break;
+			case IMUI_PROP_BORDER_TOP_COLOR:	style->borderColor[0] = prop->uval; break;
+			case IMUI_PROP_BORDER_RIGHT_COLOR:	style->borderColor[1] = prop->uval; break;
+			case IMUI_PROP_BORDER_BOTTOM_COLOR:	style->borderColor[2] = prop->uval; break;
+			case IMUI_PROP_BORDER_LEFT_COLOR:	style->borderColor[3] = prop->uval; break;
+			case IMUI_PROP_BORDER_WIDTH:	style->borderWidth = prop->fval; break;
 			case IMUI_PROP_PADDING_TOP:		style->padding[0] = prop->fval; break;
 			case IMUI_PROP_PADDING_RIGHT:	style->padding[1] = prop->fval; break;
 			case IMUI_PROP_PADDING_BOTTOM:	style->padding[2] = prop->fval; break;
 			case IMUI_PROP_PADDING_LEFT:	style->padding[3] = prop->fval; break;
-			case IMUI_PROP_MARGIN_TOP:		style->margin[0] = prop->fval; break;
+/*			case IMUI_PROP_MARGIN_TOP:		style->margin[0] = prop->fval; break;
 			case IMUI_PROP_MARGIN_RIGHT:	style->margin[1] = prop->fval; break;
 			case IMUI_PROP_MARGIN_BOTTOM:	style->margin[2] = prop->fval; break;
-			case IMUI_PROP_MARGIN_LEFT:		style->margin[3] = prop->fval; break;
+			case IMUI_PROP_MARGIN_LEFT:		style->margin[3] = prop->fval; break;*/
+			case IMUI_PROP_SPACING:			style->spacing = prop->fval; break;
 			case IMUI_PROP_RADIUS_TOPLEFT:	style->radius[0] = prop->fval; break;
 			case IMUI_PROP_RADIUS_TOPRIGHT:	style->radius[1] = prop->fval; break;
 			case IMUI_PROP_RADIUS_BOTRIGHT:	style->radius[2] = prop->fval; break;
 			case IMUI_PROP_RADIUS_BOTLEFT:	style->radius[3] = prop->fval; break;
-			case IMUI_PROP_TEXTSHADOW_OX:	style->textShadow.offset[0] = prop->fval; break;
-			case IMUI_PROP_TEXTSHADOW_OY:	style->textShadow.offset[1] = prop->fval; break;
+			case IMUI_PROP_TEXTSHADOW_OX:	style->textShadow.offset.x = prop->fval; break;
+			case IMUI_PROP_TEXTSHADOW_OY:	style->textShadow.offset.y = prop->fval; break;
 			case IMUI_PROP_TEXTSHADOW_BLUR:	style->textShadow.blur = prop->fval; break;
 			case IMUI_PROP_TEXTSHADOW_COLOR:style->textShadow.color = prop->uval; break;
-			case IMUI_PROP_BOXSHADOW_OX:	style->boxShadow.offset[0] = prop->fval; break;
-			case IMUI_PROP_BOXSHADOW_OY:	style->boxShadow.offset[1] = prop->fval; break;
+			case IMUI_PROP_BOXSHADOW_OX:	style->boxShadow.offset.x = prop->fval; break;
+			case IMUI_PROP_BOXSHADOW_OY:	style->boxShadow.offset.y = prop->fval; break;
 			case IMUI_PROP_BOXSHADOW_BLUR:	style->boxShadow.blur = prop->fval; break;
 			case IMUI_PROP_BOXSHADOW_SPREAD:style->boxShadow.spread = prop->fval; break;
 			case IMUI_PROP_BOXSHADOW_COLOR:	style->boxShadow.color = prop->uval; break;
@@ -1202,6 +1262,9 @@ static int imui__propertyCSS(void* ud, char* key, char** vals, int nvals)
 		} else if (strcmp(key, "font-style") == 0) {
 			if (nvals == 1)
 				imui__addPropInt(style, state, IMUI_PROP_FONT_STYLE, imui__parseFontWeight(p, vals[0]));
+		} else if (strcmp(key, "letter-spacing") == 0) {
+			if (nvals == 1)
+				imui__addPropFloat(style, state, IMUI_PROP_LETTER_SPACING, imui__parseSizePx(p, vals[0]));
 		} else if (strcmp(key, "color") == 0) {
 			if (nvals == 1)
 				imui__addPropUint(style, state, IMUI_PROP_CONTENT_COLOR, imui__parseColor(p, vals[0]));
@@ -1221,9 +1284,59 @@ static int imui__propertyCSS(void* ud, char* key, char** vals, int nvals)
 		} else if (strcmp(key, "outline-width") == 0) {
 			if (nvals == 1)
 				imui__addPropFloat(style, state, IMUI_PROP_OUTLINE_WIDTH, imui__parseSizePx(p, vals[0]));
-		} else if (strcmp(key, "background") == 0) {
+		} else if (strcmp(key, "outline-offset") == 0) {
 			if (nvals == 1)
-				imui__addPropUint(style, state, IMUI_PROP_BACKGROUND_COLOR, imui__parseColor(p, vals[0]));
+				imui__addPropFloat(style, state, IMUI_PROP_OUTLINE_OFFSET, imui__parseSizePx(p, vals[0]));
+		} else if (strcmp(key, "border") == 0) {
+			if (nvals == 1) {
+				if (strcmp(vals[0], "none") == 0) { // expect none
+					imui__addPropFloat(style, state, IMUI_PROP_BORDER_WIDTH, 0);
+					imui__addPropUint(style, state, IMUI_PROP_BORDER_TOP_COLOR, 0);
+					imui__addPropUint(style, state, IMUI_PROP_BORDER_RIGHT_COLOR, 0);
+					imui__addPropUint(style, state, IMUI_PROP_BORDER_BOTTOM_COLOR, 0);
+					imui__addPropUint(style, state, IMUI_PROP_BORDER_LEFT_COLOR, 0);
+				}
+			} else if (nvals == 2) {
+				unsigned int c = imui__parseColor(p, vals[1]);
+				imui__addPropFloat(style, state, IMUI_PROP_OUTLINE_WIDTH, imui__parseSizePx(p, vals[0]));
+				imui__addPropUint(style, state, IMUI_PROP_BORDER_TOP_COLOR, c);
+				imui__addPropUint(style, state, IMUI_PROP_BORDER_RIGHT_COLOR, c);
+				imui__addPropUint(style, state, IMUI_PROP_BORDER_BOTTOM_COLOR, c);
+				imui__addPropUint(style, state, IMUI_PROP_BORDER_LEFT_COLOR, c);
+			}
+		} else if (strcmp(key, "border-color") == 0) {
+			unsigned int color[4] = {0,0,0,0};
+			imui__parseBorderColor(p, vals, nvals, color);
+			imui__addPropUint(style, state, IMUI_PROP_BORDER_TOP_COLOR, color[0]);
+			imui__addPropUint(style, state, IMUI_PROP_BORDER_RIGHT_COLOR, color[1]);
+			imui__addPropUint(style, state, IMUI_PROP_BORDER_BOTTOM_COLOR, color[2]);
+			imui__addPropUint(style, state, IMUI_PROP_BORDER_LEFT_COLOR, color[3]);
+		} else if (strcmp(key, "border-width") == 0) {
+			if (nvals == 1)
+				imui__addPropFloat(style, state, IMUI_PROP_BORDER_WIDTH, imui__parseSizePx(p, vals[0]));
+		} else if (strcmp(key, "border-top-color") == 0) {
+			if (nvals == 1)
+				imui__addPropUint(style, state, IMUI_PROP_BORDER_TOP_COLOR, imui__parseColor(p, vals[0]));
+		} else if (strcmp(key, "border-right-color") == 0) {
+			if (nvals == 1)
+				imui__addPropUint(style, state, IMUI_PROP_BORDER_RIGHT_COLOR, imui__parseColor(p, vals[0]));
+		} else if (strcmp(key, "border-bottom-color") == 0) {
+			if (nvals == 1)
+				imui__addPropUint(style, state, IMUI_PROP_BORDER_BOTTOM_COLOR, imui__parseColor(p, vals[0]));
+		} else if (strcmp(key, "border-left-color") == 0) {
+			if (nvals == 1)
+				imui__addPropUint(style, state, IMUI_PROP_BORDER_LEFT_COLOR, imui__parseColor(p, vals[0]));
+		} else if (strcmp(key, "background") == 0) {
+			if (nvals == 1) {
+				unsigned int c = imui__parseColor(p, vals[0]);
+				imui__addPropFloat(style, state, IMUI_PROP_BACKGROUND_ANGLE, 0.0f);
+				imui__addPropUint(style, state, IMUI_PROP_BACKGROUND_STARTCOLOR, c);
+				imui__addPropUint(style, state, IMUI_PROP_BACKGROUND_ENDCOLOR, c);
+			} else if (nvals == 3) {
+				imui__addPropFloat(style, state, IMUI_PROP_BACKGROUND_ANGLE, imui__parseAngle(p, vals[0]));
+				imui__addPropUint(style, state, IMUI_PROP_BACKGROUND_STARTCOLOR, imui__parseColor(p, vals[1]));
+				imui__addPropUint(style, state, IMUI_PROP_BACKGROUND_ENDCOLOR, imui__parseColor(p, vals[2]));
+			}
 		} else if (strcmp(key, "width") == 0) {
 			if (nvals == 1)
 				imui__addPropFloat(style, state, IMUI_PROP_WIDTH, imui__parseSize(p, vals[0]));
@@ -1249,7 +1362,7 @@ static int imui__propertyCSS(void* ud, char* key, char** vals, int nvals)
 		} else if (strcmp(key, "padding-left") == 0) {
 			if (nvals == 1)
 				imui__addPropFloat(style, state, IMUI_PROP_PADDING_LEFT, imui__parseSizePx(p, vals[0]));
-		} else if (strcmp(key, "margin") == 0) {
+/*		} else if (strcmp(key, "margin") == 0) {
 			float margin[4] = {0,0,0,0};
 			imui__parseMargin(p, vals, nvals, margin);
 			imui__addPropFloat(style, state, IMUI_PROP_MARGIN_TOP, margin[0]);
@@ -1267,7 +1380,10 @@ static int imui__propertyCSS(void* ud, char* key, char** vals, int nvals)
 				imui__addPropFloat(style, state, IMUI_PROP_MARGIN_BOTTOM, imui__parseSizePx(p, vals[0]));
 		} else if (strcmp(key, "margin-left") == 0) {
 			if (nvals == 1)
-				imui__addPropFloat(style, state, IMUI_PROP_MARGIN_LEFT, imui__parseSizePx(p, vals[0]));
+				imui__addPropFloat(style, state, IMUI_PROP_MARGIN_LEFT, imui__parseSizePx(p, vals[0]));*/
+		} else if (strcmp(key, "spacing") == 0) {
+			if (nvals == 1)
+				imui__addPropFloat(style, state, IMUI_PROP_SPACING, imui__parseSizePx(p, vals[0]));
 		} else if (strcmp(key, "content") == 0) {
 			if (nvals == 1) {
 				char* content = imui__parseContent(p, vals[0]);
@@ -1694,12 +1810,12 @@ static void imui__calculateSizes(struct IMUIbox* box, int depth)
 		// Percent matches parent
 		if (box->requestedSize.x >= 0.0f && box->requestedSize.x < 0.5f) {
 			percent = box->requestedSize.x * 10.0f;
-			printf("%s(%s) percent(%f) X -> %f\n", box->type, box->id, percent, box->parent->computedSize.x);
+//			printf("%s(%s) percent(%f) X -> %f\n", box->type, box->id, percent, box->parent->computedSize.x);
 			box->computedSize.x = imui__maxf(1.0f, box->parent->computedSize.x * percent);
 		}
 		if (box->requestedSize.y >= 0.0f && box->requestedSize.y < 0.5f) {
 			percent = box->requestedSize.y * 10.0f;
-			printf("%s(%s) percent(%f) Y -> %f\n", box->type, box->id, percent, box->parent->computedSize.y);
+//			printf("%s(%s) percent(%f) Y -> %f\n", box->type, box->id, percent, box->parent->computedSize.y);
 			box->computedSize.y = imui__maxf(1.0f, box->parent->computedSize.y * percent);
 		}
 	}
@@ -1715,12 +1831,14 @@ static void imui__calculateSizes(struct IMUIbox* box, int depth)
 		cs = box->contentSize.y;
 	}
 
-	printf("%*scalcsize <%s> req=(%.1f, %.1f) elem=(%.1f, %.1f) cont=(%.1f, %.1f) comp=(%.1f, %.1f) cs=%f ms=%f\n", depth*2,"", box->type, box->requestedSize.x,box->requestedSize.y, box->elementSize.x,box->elementSize.y, box->contentSize.x,box->contentSize.y, box->computedSize.x,box->computedSize.y, cs, ms);
+//	printf("%*scalcsize <%s> req=(%.1f, %.1f) elem=(%.1f, %.1f) cont=(%.1f, %.1f) comp=(%.1f, %.1f) cs=%f ms=%f\n", depth*2,"", box->type, box->requestedSize.x,box->requestedSize.y, box->elementSize.x,box->elementSize.y, box->contentSize.x,box->contentSize.y, box->computedSize.x,box->computedSize.y, cs, ms);
 
 	for (it = box->items; it != NULL; it = it->next) {
 		imui__calculateSizes(it, depth+1);
 		imui__updateMetrics(it, box->dir);
 		ms += it->mainSize;
+		if (it->next)
+			ms += box->computedStyle.spacing;
 		cs = imui__maxf(cs, it->crossSize);
 	}
 
@@ -1776,7 +1894,7 @@ static void imui__calculateSizes(struct IMUIbox* box, int depth)
 			align = it->alignSelf;
 		// check for self alignment
 		if (align == IMUI_JUSTIFY) {
-			printf("%*s<%s> justify %f\n", depth*2,"", it->type, cs);
+//			printf("%*s<%s> justify %f\n", depth*2,"", it->type, cs);
 			if (box->dir == IMUI_COL)
 				it->computedSize.x = cs;
 			else
@@ -1800,6 +1918,8 @@ static void imui__growItems(struct IMUIbox* box, int depth)
 		totalGrow += it->grow;
 		totalShrink += it->shrink;
 		ms += it->mainSize;
+		if (it->next)
+			ms += box->computedStyle.spacing;
 	}
 	
 	mainSize = imui__maxf(1.0f, box->mainSize - imui__calcPadding(box, box->dir));
@@ -1810,11 +1930,11 @@ static void imui__growItems(struct IMUIbox* box, int depth)
 //	printf("GROW: <%s> tot=%f  (ms=%f  mainSize=%f)\n", box->type, totalGrow, ms, mainSize);
 
 	if (totalGrow > 0.0f && ms < mainSize) {
-		printf("%*sGROW: <%s>(%s) tot=%f  (ms=%f  mainSize=%f)\n", depth*2,"", box->type, box->id, totalGrow, ms, mainSize);
+//		printf("%*sGROW: <%s>(%s) tot=%f  (ms=%f  mainSize=%f)\n", depth*2,"", box->type, box->id, totalGrow, ms, mainSize);
 		float space = mainSize - ms;
 		for (it = box->items; it != NULL; it = it->next) {
 			float itemMainSize = imui__maxf(1.0f, it->mainSize + (space * it->grow / totalGrow));
-			printf("%*s  - itemMainSize=%f\n", depth*2,"", itemMainSize);
+//			printf("%*s  - itemMainSize=%f\n", depth*2,"", itemMainSize);
 			if (box->dir == IMUI_COL) {
 				it->computedSize.x = it->crossSize;
 				it->computedSize.y = itemMainSize;
@@ -1823,7 +1943,7 @@ static void imui__growItems(struct IMUIbox* box, int depth)
 				it->computedSize.y = it->crossSize;
 			}
 			it->requestedSize = it->computedSize;
-			printf("%*s  - it->requestedSize=%f,%f\n", depth*2,"", it->requestedSize.x,it->requestedSize.y);
+//			printf("%*s  - it->requestedSize=%f,%f\n", depth*2,"", it->requestedSize.x,it->requestedSize.y);
 			imui__calculateSizes(it, depth+1);
 			imui__growItems(it, depth+1);
 		}
@@ -1837,7 +1957,7 @@ static void imui__growItems(struct IMUIbox* box, int depth)
 
 	// Shrink
 	if (totalShrink > 0.0f && ms > mainSize) {
-		printf("%*sSHRINK: <%s>(%s) tot=%f  (ms=%f  mainSize=%f)\n", depth*2,"", box->type, box->id, totalShrink, ms, mainSize);
+//		printf("%*sSHRINK: <%s>(%s) tot=%f  (ms=%f  mainSize=%f)\n", depth*2,"", box->type, box->id, totalShrink, ms, mainSize);
 		float shrinkSum = 0, space;
 		for (it = box->items; it != NULL; it = it->next)
 			shrinkSum += it->mainSize * it->shrink;
@@ -1855,7 +1975,7 @@ static void imui__growItems(struct IMUIbox* box, int depth)
 				it->computedSize.y = it->crossSize;
 			}
 			it->requestedSize = it->computedSize;
-			printf("%*s  - it->requestedSize=%f,%f\n", depth*2,"", it->requestedSize.x,it->requestedSize.y);
+//			printf("%*s  - it->requestedSize=%f,%f\n", depth*2,"", it->requestedSize.x,it->requestedSize.y);
 			imui__calculateSizes(it, depth+1);
 			imui__growItems(it, depth+1);
 		}
@@ -1883,7 +2003,9 @@ static void imui__packItems(struct IMUIbox* box, int depth)
 	else
 		availableMainSpace = mainSize - box->minimumSize.x;
 	
-	printf("%*s<%s> mainSize=%f availableMainSpace=%f\n", depth*2, "", box->type, mainSize, availableMainSpace);
+//	printf("%*s<%s> mainSize=%f availableMainSpace=%f\n", depth*2, "", box->type, mainSize, availableMainSpace);
+
+	spacing = box->computedStyle.spacing;
 
 	switch (box->pack) {
 		case IMUI_START:
@@ -1896,7 +2018,7 @@ static void imui__packItems(struct IMUIbox* box, int depth)
 			break;
 		case IMUI_JUSTIFY:
 			if (totalItems > 1)
-				spacing = availableMainSpace / (totalItems - 1);
+				spacing += availableMainSpace / (totalItems - 1);
 			else
 				ms = availableMainSpace / 2;
 			break;
